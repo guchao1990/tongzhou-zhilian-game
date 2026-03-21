@@ -928,6 +928,7 @@ function advanceAfterAction(){
   if(next===-1){endGame();return;}
 
   turnIdx=next;highlightTurn();
+  console.log("[Game] advanceAfterAction: turnIdx=",turnIdx,"active=",active.length);
 
   if(turnIdx===0){
     // 回到人类：检查本轮人类是否已行动
