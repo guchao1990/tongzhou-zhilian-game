@@ -873,8 +873,10 @@ function startTurnTimer(){
 }
 
 function doAction(type){
-  console.log('[Game] doAction',type,'turnIdx=',turnIdx,'busy=',busy);
-  if(state!==GS.PLAYING||busy||turnIdx!==0)return;
+  console.log('[Game] doAction:',type,'busy=',busy,'turnIdx=',turnIdx,'state=',state);
+  if(state!==GS.PLAYING){console.log('[Game] doAction: BLOCKED state');return;}
+  if(busy){console.log('[Game] doAction: BLOCKED busy');return;}
+  if(turnIdx!==0){console.log('[Game] doAction: BLOCKED turnIdx',turnIdx);return;}
   busy=true;clearInterval(turnTimer);
   const me=players[0];
   if(!me.active){busy=false;return;}
@@ -1048,8 +1050,10 @@ function updateBtnTexts(){
 }
 
 function enableBtns(){
-  console.log('[Game] enableBtns: state=',state,'turnIdx=',turnIdx,'p0active=',players[0]&&players[0].active);
-  if(state!==GS.PLAYING||turnIdx!==0||!players[0].active)return;
+  console.log('[Game] enableBtns: state=',state,'turnIdx=',turnIdx,'busy=',busy,'p0=',players[0]&&players[0].active);
+  if(state!==GS.PLAYING){console.log('[Game] enableBtns: BLOCKED state');return;}
+  if(turnIdx!==0){console.log('[Game] enableBtns: BLOCKED turnIdx',turnIdx);return;}
+  if(!players[0].active){console.log('[Game] enableBtns: BLOCKED p0 inactive');return;}
   ['btn-fold','btn-look','btn-call','btn-raise'].forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=false;});
   updateBtnTexts();
 }
