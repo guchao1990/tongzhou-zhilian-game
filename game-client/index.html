@@ -808,7 +808,7 @@ function simLoad(){
   },300);
 }
 
-function startGame(m){if(busy||state===GS.PLAYING)return;if(m==='ai')document.getElementById('difficulty-modal').style.display='flex';else alert('在线模式即将上线！');}
+function startGame(m){console.log('[Game] startGame:',m,'busy=',busy,'state=',state);if(busy){console.log('[Game] startGame BLOCKED: busy');return;}if(state===GS.PLAYING){console.log('[Game] startGame BLOCKED: game in progress');return;}if(m==='ai'){console.log('[Game] showing difficulty modal');document.getElementById('difficulty-modal').style.display='flex';}else{alert('在线模式即将上线！');}}
 function confirmDifficulty(){if(busy)return;busy=true;document.getElementById('difficulty-modal').style.display='none';initGame();}
 function hideDifficulty(){document.getElementById('difficulty-modal').style.display='none';}
 
