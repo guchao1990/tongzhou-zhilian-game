@@ -1041,6 +1041,11 @@ function updateChipsDisplay() {
   document.getElementById('my-chips').textContent = me.chips;
   document.getElementById('pot-amount').textContent = potAmount;
   document.getElementById('btn-call').textContent = '跟注 ' + (currentBet > 0 ? currentBet : 0);
+  // 更新AI筹码
+  for (let i = 1; i <= 3; i++) {
+    const el = document.getElementById('chips-' + i);
+    if (el) el.textContent = players[i].chips;
+  }
 }
 
 // AI 回合
@@ -1082,6 +1087,7 @@ function simulateAITurn() {
   setTimeout(() => {
     document.getElementById('player-' + aiIdx).classList.remove('current-turn');
     updateChipsDisplay();
+    enableButtons();
     checkGameEnd();
   }, 1000);
 }
@@ -1097,6 +1103,7 @@ function checkGameEnd() {
   }
   
   // 继续计时
+  enableButtons();
   startTurnTimer();
 }
 
