@@ -748,27 +748,27 @@
 
 <script>
 /* ============================================
- * 炸金花游戏 - 完整正确版（含明暗注规则）
+ * 炸金花游戏 - 最终修复版
  * ============================================ */
 
 const GameState = { MENU: 'menu', LOADING: 'loading', PLAYING: 'playing', RESULT: 'result' };
 const HandRank = { SINGLE: 1, PAIR: 2, STRAIGHT: 3, FLUSH: 4, BOMB: 5 };
 const HandName = { 1: '单张', 2: '对子', 3: '顺子', 4: '金花', 5: '炸弹' };
-const ANTE = 50; // 底注
+const ANTE = 50;
 
 let currentState = GameState.LOADING;
 let gameRoomId = null;
 let turnTimer = null;
 let turnTimeLeft = 20;
-let players = []; // [human, ai1, ai2, ai3]
+let players = [];
 let myCards = [];
-let potAmount = 0;     // 底池
-let currentBet = 0;   // 当前最高下注（明注）
-let blindBet = 0;      // 当前最高下注（暗注 = 2x明注）
-let activePlayerIdx = 0; // 当前应操作的玩家索引（0=人，1-3=AI）
-let gamePhase = 'betting'; // 'betting' | 'showdown'
-let seenMap = {}; // playerId -> true/false 是否已看牌
-let actionLog = []; // 本轮下注记录 [{player, amount, seen}]
+let potAmount = 0;
+let currentBet = 0;
+let blindBet = 0;
+let activePlayerIdx = 0;
+let seenMap = {};
+let actionLog = [];
+let isProcessing = false; // 防止重复触发
 
 // ============ 牌型 ============
 function getCardValue(card) {
@@ -776,6 +776,7 @@ function getCardValue(card) {
   return map[card.substring(1)] || parseInt(card.substring(1));
 }
 function getCardSuit(card) { return card[0]; }
+function isRed(card) { const s = getCardSuit(card); return s === '♥' || s === '♦'; }
 
 function getHandType(cards) {
   if (!cards || cards.length !== 3) return HandRank.SINGLE;
@@ -805,9 +806,7 @@ function compareHands(a, b) {
     const sb = vb[0] === vb[1] ? vb[2] : vb[0];
     return sa > sb ? 1 : (sa < sb ? -1 : 0);
   }
-  for (let i = 2; i >= 0; i--) {
-    if (va[i] !== vb[i]) return va[i] > vb[i] ? 1 : -1;
-  }
+  for (let i = 2; i >= 0; i--) { if (va[i] !== vb[i]) return va[i] > vb[i] ? 1 : -1; }
   return 0;
 }
 
@@ -842,16 +841,20 @@ function confirmDifficulty() {
 function hideDifficulty() { document.getElementById('difficulty-modal').style.display = 'none'; }
 
 function initGame() {
+  // 防止重复初始化
+  if (isProcessing) return;
+  isProcessing = true;
+
   document.getElementById('menu-screen').style.display = 'none';
   document.getElementById('game-screen').style.display = 'flex';
   document.getElementById('result-modal').style.display = 'none';
   currentState = GameState.PLAYING;
   gameRoomId = 'R' + Date.now().toString(36).toUpperCase();
-  potAmount = 0;
+  potAmount = ANTE * 4;
   currentBet = ANTE;
   blindBet = ANTE * 2;
-  gamePhase = 'betting';
   actionLog = [];
+  isProcessing = false;
 
   players = [
     { id: 'me',    name: '我',   chips: 1000, active: true, cards: [] },
@@ -861,31 +864,33 @@ function initGame() {
   ];
   seenMap = { 'me': false, 'ai_1': false, 'ai_2': false, 'ai_3': false };
 
-  // 初始化显示
-  for (let i = 0; i < 4; i++) {
-    const suf = i === 0 ? '-me' : '-' + i;
-    document.getElementById('name' + suf).textContent = players[i].name;
-    document.getElementById('chips' + suf).textContent = players[i].chips;
-    document.getElementById('player' + suf).classList.remove('player-folded', 'player-lost', 'player-seen');
-    document.querySelectorAll('#cards' + suf + ' .card').forEach(c => {
-      c.textContent = '?'; c.className = 'card hidden';
-    });
+  // 初始化显示 - 明确指定每个位置的名字
+  document.getElementById('name-me').textContent = '我';
+  document.getElementById('chips-me').textContent = '1000';
+  document.getElementById('player-me').className = 'player-area bottom';
+  document.getElementById('player-me').classList.remove('player-folded', 'player-lost', 'player-seen');
+
+  for (let i = 1; i <= 3; i++) {
+    const ai = players[i];
+    document.getElementById('name-' + i).textContent = ai.name;
+    document.getElementById('chips-' + i).textContent = ai.chips;
+    document.getElementById('player-' + i).classList.remove('player-folded', 'player-lost', 'player-seen');
   }
+
+  // 重置所有卡牌
+  document.querySelectorAll('.card').forEach(c => { c.textContent = '?'; c.className = 'card hidden'; });
+
   document.getElementById('my-chips').textContent = '1000';
-  document.getElementById('pot-amount').textContent = ANTE * 4 + '';
+  document.getElementById('pot-amount').textContent = potAmount + '';
   document.getElementById('btn-call').textContent = '跟注 ' + ANTE;
   document.getElementById('btn-look').textContent = '看牌 ' + blindBet;
+  document.getElementById('btn-look').disabled = false;
   document.getElementById('raise-control').style.display = 'none';
 
-  // 庄家扣底注（每人50）
-  for (let i = 0; i < 4; i++) {
-    players[i].chips -= ANTE;
-    actionLog.push({ idx: i, amount: ANTE, seen: true, type: 'ante' });
-  }
-  potAmount = ANTE * 4;
+  // 扣底注
+  for (let i = 0; i < 4; i++) { players[i].chips -= ANTE; }
   updateAllDisplays();
   dealCards();
-  // 第一个人开始行动
   activePlayerIdx = 0;
   highlightActive();
   startTurnTimer();
@@ -910,6 +915,7 @@ function dealCards() {
   });
 
   setTimeout(() => {
+    // 显示我的牌
     const myCardEls = document.querySelectorAll('#cards-me .card');
     myCardEls.forEach((card, i) => {
       const c = myCards[i];
@@ -917,6 +923,7 @@ function dealCards() {
       card.classList.remove('hidden');
       card.classList.add(isRed(c) ? 'red' : 'black');
     });
+    // AI暗牌
     for (let i = 1; i <= 3; i++) {
       document.querySelectorAll('#cards-' + i + ' .card').forEach(card => {
         card.textContent = '🎴';
@@ -924,109 +931,92 @@ function dealCards() {
       });
     }
     enableButtons();
+    isProcessing = false;
   }, 700);
 }
 
-function isRed(card) { const s = getCardSuit(card); return s === '♥' || s === '♦'; }
-
-// ============ 回合逻辑 ============
+// ============ 操作 ============
 function doAction(type) {
   if (currentState !== GameState.PLAYING) return;
-  if (activePlayerIdx !== 0) return; // 只处理人的回合
+  if (isProcessing) return;
+  if (activePlayerIdx !== 0) return;
+
+  isProcessing = true;
   clearInterval(turnTimer);
   disableButtons();
 
   const me = players[0];
-  const playerId = me.id;
-  const alreadySeen = seenMap[playerId];
+  if (!me.active) { isProcessing = false; return; }
 
+  const seen = seenMap['me'];
   if (type === 'fold') {
     me.active = false;
     document.getElementById('player-me').classList.add('player-folded');
     showToast('已弃牌');
-    actionLog.push({ idx: 0, amount: 0, seen: alreadySeen, type: 'fold' });
-    advanceToNextPlayer();
+    actionLog.push({ idx: 0, type: 'fold' });
+    setTimeout(() => { isProcessing = false; advanceToNext(); }, 300);
   } else if (type === 'look') {
-    // 看牌暗注（未看牌状态下，看牌需要下暗注=当前明注x2）
-    if (!alreadySeen) {
+    if (!seen) {
       const cost = blindBet;
       me.chips -= cost;
       potAmount += cost;
-      seenMap[playerId] = true;
+      seenMap['me'] = true;
       document.getElementById('player-me').classList.add('player-seen');
       showToast('看牌，暗注 ' + cost);
-      actionLog.push({ idx: 0, amount: cost, seen: false, type: 'look' });
+      actionLog.push({ idx: 0, type: 'look', amount: cost });
       updateAllDisplays();
-      advanceToNextPlayer();
     }
+    setTimeout(() => { isProcessing = false; advanceToNext(); }, 300);
   } else if (type === 'call') {
-    // 跟注（下已看牌的注）
-    const cost = currentBet;
+    const cost = seen ? currentBet : blindBet;
     me.chips -= cost;
     potAmount += cost;
-    if (!alreadySeen) seenMap[playerId] = true;
+    if (!seen) seenMap['me'] = true;
     document.getElementById('player-me').classList.add('player-seen');
     showToast('跟注 ' + cost);
-    actionLog.push({ idx: 0, amount: cost, seen: seenMap[playerId], type: 'call' });
+    actionLog.push({ idx: 0, type: 'call', amount: cost });
     updateAllDisplays();
-    advanceToNextPlayer();
+    setTimeout(() => { isProcessing = false; advanceToNext(); }, 300);
   } else if (type === 'raise') {
-    const raiseAmt = parseInt(document.getElementById('raise-amount').textContent);
-    // 加注：下当前明注 + 加注额
-    const totalCost = currentBet + raiseAmt;
-    me.chips -= totalCost;
-    potAmount += totalCost;
-    // 加注后视为已看牌
-    if (!alreadySeen) seenMap[playerId] = true;
-    document.getElementById('player-me').classList.add('player-seen');
+    const raiseAmt = parseInt(document.getElementById('raise-amount') ? document.getElementById('raise-amount').value : 100);
+    const total = (seen ? currentBet : blindBet) + raiseAmt;
+    if (total > me.chips) { showToast('筹码不足！'); enableButtons(); isProcessing = false; return; }
+    me.chips -= total;
+    potAmount += total;
     currentBet += raiseAmt;
     blindBet = currentBet * 2;
-    showToast('加注 ' + totalCost + '（看注）');
-    actionLog.push({ idx: 0, amount: totalCost, seen: true, type: 'raise' });
+    seenMap['me'] = true;
+    document.getElementById('player-me').classList.add('player-seen');
+    showToast('加注 ' + total);
+    actionLog.push({ idx: 0, type: 'raise', amount: total });
     updateAllDisplays();
-    updateBetButtons();
-    advanceToNextPlayer();
+    setTimeout(() => { isProcessing = false; advanceToNext(); }, 300);
   }
 }
 
-function advanceToNextPlayer() {
+function advanceToNext() {
+  const active = players.filter(p => p.active);
+  if (active.length <= 1) { endGame(); return; }
+  if (active.length === 2) { endGame(); return; }
+
   // 找下一个活跃玩家
   let next = -1;
-  let attempts = 0;
-  for (let i = 1; i <= 3 && attempts < 4; i++) {
+  for (let i = 1; i <= 3; i++) {
     const idx = (activePlayerIdx + i) % 4;
-    if (players[idx].active) { next = idx; break; }
-    attempts++;
+    if (players[idx] && players[idx].active) { next = idx; break; }
   }
-
-  // 检查是否只剩2人或已所有人都行动完
-  const activePlayers = players.filter(p => p.active);
-  if (activePlayers.length <= 1) {
-    endGame(); return;
-  }
-  if (activePlayers.length === 2 && gamePhase === 'betting') {
-    // 强制开牌
-    endGame(); return;
-  }
-
-  if (next === -1) {
-    // 本轮结束，进入下一轮（所有人都表态过）
-    gamePhase = 'showdown';
-    endGame(); return;
-  }
+  if (next === -1) { endGame(); return; }
 
   activePlayerIdx = next;
   highlightActive();
 
   if (next === 0) {
-    // 回到人
     enableButtons();
     startTurnTimer();
   } else {
-    // AI 行动
     disableButtons();
     startTurnTimer();
-    setTimeout(() => doAIAction(next), 600);
+    setTimeout(() => doAIAction(next), 500);
   }
 }
 
@@ -1035,99 +1025,71 @@ function doAIAction(aiIdx) {
   clearInterval(turnTimer);
 
   const ai = players[aiIdx];
-  if (!ai.active) { advanceToNextPlayer(); return; }
+  if (!ai || !ai.active) { advanceToNext(); return; }
 
-  const aiId = ai.id;
-  const hasSeen = seenMap[aiId];
+  const hasSeen = seenMap[ai.id];
   const bet = hasSeen ? currentBet : blindBet;
   const rand = Math.random();
   let action = null;
-  let cost = 0;
 
-  if (rand < 0.18) {
+  if (rand < 0.15) {
     action = 'fold';
-  } else if (rand < 0.45) {
+  } else if (rand < 0.4) {
     action = 'look';
-    cost = blindBet;
-  } else if (rand < 0.8) {
+  } else if (rand < 0.75) {
     action = 'call';
-    cost = bet;
   } else {
     action = 'raise';
-    cost = bet + 50 + Math.floor(Math.random() * 100);
   }
 
   if (action === 'fold') {
     ai.active = false;
     document.getElementById('player-' + aiIdx).classList.add('player-folded');
     showToast(ai.name + ' 弃牌');
-    actionLog.push({ idx: aiIdx, amount: 0, seen: hasSeen, type: 'fold' });
-  } else if (action === 'look' || action === 'call' || action === 'raise') {
-    if (cost > ai.chips) { action = 'fold'; ai.active = false; document.getElementById('player-' + aiIdx).classList.add('player-folded'); showToast(ai.name + ' 弃牌'); }
-    else {
-      ai.chips -= cost;
-      potAmount += cost;
-      if (action !== 'call' || !hasSeen) seenMap[aiId] = true;
-      document.getElementById('player-' + aiIdx).classList.add('player-seen');
-      if (action === 'look') {
-        showToast(ai.name + ' 看牌，暗注 ' + cost);
-        // 翻开AI的牌给人类看
-        const aiCardEls = document.querySelectorAll('#cards-' + aiIdx + ' .card');
-        aiCardEls.forEach((card, j) => {
-          const c = ai.cards[j];
-          card.textContent = c;
-          card.classList.remove('hidden');
-          card.classList.add(isRed(c) ? 'red' : 'black');
-        });
-      } else if (action === 'call') {
-        showToast(ai.name + ' 跟注 ' + cost);
-      } else if (action === 'raise') {
-        currentBet += (cost - bet);
-        blindBet = currentBet * 2;
-        showToast(ai.name + ' 加注 ' + cost);
-      }
-      actionLog.push({ idx: aiIdx, amount: cost, seen: seenMap[aiId], type: action });
+    setTimeout(() => advanceToNext(), 600);
+  } else {
+    let cost = action === 'look' ? blindBet : (action === 'call' ? bet : bet + 50 + Math.floor(Math.random() * 100));
+    if (cost > ai.chips) cost = ai.chips;
+    if (cost <= 0) { ai.active = false; document.getElementById('player-' + aiIdx).classList.add('player-folded'); showToast(ai.name + ' 弃牌'); setTimeout(() => advanceToNext(), 600); return; }
+    ai.chips -= cost;
+    potAmount += cost;
+    seenMap[ai.id] = true;
+    document.getElementById('player-' + aiIdx).classList.add('player-seen');
+
+    if (action === 'look') {
+      showToast(ai.name + ' 看牌，暗注 ' + cost);
+      const aiCardEls = document.querySelectorAll('#cards-' + aiIdx + ' .card');
+      aiCardEls.forEach((card, j) => {
+        const c = ai.cards[j];
+        card.textContent = c;
+        card.classList.remove('hidden');
+        card.classList.add(isRed(c) ? 'red' : 'black');
+      });
+    } else if (action === 'call') {
+      showToast(ai.name + ' 跟注 ' + cost);
+    } else if (action === 'raise') {
+      currentBet += (cost - bet);
+      blindBet = currentBet * 2;
+      showToast(ai.name + ' 加注 ' + cost);
     }
-  }
-
-  updateAllDisplays();
-  if (action === 'fold' || ai.active) {
-    setTimeout(() => advanceToNextPlayer(), 800);
+    updateAllDisplays();
+    setTimeout(() => advanceToNext(), 800);
   }
 }
 
-function advanceToNextPlayer_OLD() {
-  // 找下一个活跃玩家（顺时针，跳过弃牌）
-  let next = -1;
-  for (let i = 1; i <= 3; i++) {
-    const idx = (activePlayerIdx + i) % 4;
-    if (players[idx].active) { next = idx; break; }
-  }
-  const activePlayers = players.filter(p => p.active);
-  if (activePlayers.length <= 1 || next === -1) { endGame(); return; }
-  if (activePlayers.length === 2) { endGame(); return; }
-
-  activePlayerIdx = next;
-  highlightActive();
-  if (next === 0) { enableButtons(); startTurnTimer(); }
-  else { disableButtons(); setTimeout(() => doAIAction(next), 600); }
-}
-
-// ============ 回合提示高亮 ============
 function highlightActive() {
   document.querySelectorAll('.player-area').forEach(el => el.classList.remove('current-turn'));
-  if (activePlayerIdx >= 0) {
-    const id = activePlayerIdx === 0 ? 'player-me' : 'player-' + activePlayerIdx;
-    document.getElementById(id).classList.add('current-turn');
-  }
+  const id = activePlayerIdx === 0 ? 'player-me' : 'player-' + activePlayerIdx;
+  const el = document.getElementById(id);
+  if (el) el.classList.add('current-turn');
 }
 
-// ============ 显示更新 ============
 function updateAllDisplays() {
   document.getElementById('chips-me').textContent = players[0].chips;
   document.getElementById('my-chips').textContent = players[0].chips;
   for (let i = 1; i <= 3; i++) {
-    document.getElementById('chips-' + i).textContent = players[i].chips;
+    const el = document.getElementById('chips-' + i);
+    if (el) el.textContent = players[i].chips;
   }
   document.getElementById('pot-amount').textContent = potAmount;
   updateBetButtons();
@@ -1135,19 +1097,24 @@ function updateAllDisplays() {
 
 function updateBetButtons() {
   const me = players[0];
+  if (!me || !me.active) return;
   const seen = seenMap['me'];
-  if (!me.active) { disableButtons(); return; }
   document.getElementById('btn-call').textContent = '跟注 ' + (seen ? currentBet : blindBet);
   document.getElementById('btn-look').textContent = '看牌 ' + blindBet;
-  document.getElementById('btn-look').disabled = seen; // 已看过则禁用
+  document.getElementById('btn-look').disabled = seen;
   document.getElementById('raise-control').style.display = 'block';
-  document.getElementById('raise-slider').max = Math.min(me.chips - currentBet, 500);
-  document.getElementById('raise-amount').textContent = Math.min(Math.floor(me.chips / 4), 200);
-  document.getElementById('raise-slider').value = Math.min(Math.floor(me.chips / 4), 200);
+  const maxRaise = Math.min(me.chips - (seen ? currentBet : blindBet), 500);
+  const slider = document.getElementById('raise-slider');
+  const amountEl = document.getElementById('raise-amount');
+  if (slider) slider.max = Math.max(maxRaise, 50);
+  if (slider) slider.value = Math.min(Math.floor(me.chips / 4), 200);
+  if (amountEl) amountEl.textContent = slider ? slider.value : 100;
 }
 
 function updateRaiseAmount() {
-  document.getElementById('raise-amount').textContent = document.getElementById('raise-slider').value;
+  const slider = document.getElementById('raise-slider');
+  const amountEl = document.getElementById('raise-amount');
+  if (amountEl && slider) amountEl.textContent = slider.value;
 }
 
 // ============ 结束 ============
@@ -1157,7 +1124,6 @@ function endGame() {
   currentState = GameState.RESULT;
   highlightActive();
 
-  // 亮开所有人手牌
   for (let i = 1; i <= 3; i++) {
     if (!players[i].active) continue;
     const aiCardEls = document.querySelectorAll('#cards-' + i + ' .card');
@@ -1168,28 +1134,27 @@ function endGame() {
       card.classList.add(isRed(c) ? 'red' : 'black');
     });
   }
-  setTimeout(() => showResult(), 1200);
+  setTimeout(() => showResult(), 1000);
 }
 
 function showResult() {
-  const activePlayers = players.filter(p => p.active);
+  const active = players.filter(p => p.active);
   let resultTitle, resultText, resultChips;
 
-  if (activePlayers.length <= 1) {
-    if (activePlayers.length === 1 && activePlayers[0].id === 'me') {
-      resultTitle = '胜利'; activePlayers[0].chips += potAmount;
-      resultText = '所有对手弃牌，你获胜！'; resultChips = '+' + potAmount;
-    } else {
-      resultTitle = '失败'; resultText = '你已弃牌'; resultChips = 0;
-    }
+  if (!players[0].active) {
+    resultTitle = active.length === 1 && active[0].id === 'me' ? '胜利' : '失败';
+    resultText = players[0].active ? '你获胜！' : '你已弃牌';
+    resultChips = players[0].active ? '+' + potAmount : 0;
+    if (players[0].active) players[0].chips += potAmount;
+  } else if (active.length === 1) {
+    resultTitle = '胜利';
+    players[0].chips += potAmount;
+    resultText = '所有对手弃牌！';
+    resultChips = '+' + potAmount;
   } else {
-    // 比牌：找出最大牌型的玩家
-    let bestPlayer = activePlayers[0];
-    let bestCards = bestPlayer.cards;
-    for (const p of activePlayers) {
-      if (compareHands(p.cards, bestCards) > 0) { bestPlayer = p; bestCards = p.cards; }
-    }
-    const myBest = compareHands(players[0].cards, bestCards);
+    let best = active[0];
+    for (const p of active) { if (compareHands(p.cards, best.cards) > 0) best = p; }
+    const myBest = compareHands(players[0].cards, best.cards);
     if (myBest >= 0) {
       resultTitle = '胜利'; players[0].chips += potAmount;
       resultChips = '+' + potAmount;
@@ -1215,14 +1180,16 @@ function showResult() {
 function startTurnTimer() {
   turnTimeLeft = 20;
   clearInterval(turnTimer);
-  document.getElementById('timer-fill').style.width = '100%';
+  const fill = document.getElementById('timer-fill');
+  if (fill) fill.style.width = '100%';
   turnTimer = setInterval(() => {
     turnTimeLeft -= 0.5;
-    document.getElementById('timer-fill').style.width = (turnTimeLeft / 20 * 100) + '%';
+    const fill = document.getElementById('timer-fill');
+    if (fill) fill.style.width = (turnTimeLeft / 20 * 100) + '%';
     if (turnTimeLeft <= 0) {
       clearInterval(turnTimer);
-      if (activePlayerIdx === 0) {
-        showToast('超时，自动弃牌');
+      if (activePlayerIdx === 0 && players[0].active) {
+        showToast('超时自动弃牌');
         doAction('fold');
       }
     }
@@ -1231,6 +1198,8 @@ function startTurnTimer() {
 
 // ============ 按钮 ============
 function enableButtons() {
+  if (currentState !== GameState.PLAYING) return;
+  if (activePlayerIdx !== 0) return;
   const me = players[0];
   if (!me || !me.active) return;
   ['btn-fold', 'btn-look', 'btn-call', 'btn-raise'].forEach(id => {
@@ -1251,6 +1220,7 @@ function exitGame() {
     document.getElementById('game-screen').style.display = 'none';
     document.getElementById('menu-screen').style.display = 'flex';
     currentState = GameState.MENU;
+    isProcessing = false;
   }
 }
 function backToMenu() {
@@ -1258,6 +1228,7 @@ function backToMenu() {
   document.getElementById('game-screen').style.display = 'none';
   document.getElementById('menu-screen').style.display = 'flex';
   currentState = GameState.MENU;
+  isProcessing = false;
 }
 function playAgain() {
   document.getElementById('result-modal').style.display = 'none';
