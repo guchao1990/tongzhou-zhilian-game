@@ -808,13 +808,13 @@ function simLoad(){
   },300);
 }
 
-function startGame(m){if(m==='ai')document.getElementById('difficulty-modal').style.display='flex';else alert('在线模式即将上线！');}
-function confirmDifficulty(){document.getElementById('difficulty-modal').style.display='none';initGame();}
+function startGame(m){if(busy||state===GS.PLAYING)return;if(m==='ai')document.getElementById('difficulty-modal').style.display='flex';else alert('在线模式即将上线！');}
+function confirmDifficulty(){if(busy)return;busy=true;document.getElementById('difficulty-modal').style.display='none';initGame();}
 function hideDifficulty(){document.getElementById('difficulty-modal').style.display='none';}
 
 function initGame(){
   if(busy)return;
-  busy=true;state=GS.PLAYING;aiRunning=false;roundNum=1;humanActedThisRound=false;
+  busy=true;state=GS.PLAYING;aiRunning=false;roundNum=1;humanActedThisRound=false;humanTurnActive=false;
   document.getElementById('menu-screen').style.display='none';
   document.getElementById('game-screen').style.display='flex';
   document.getElementById('result-modal').style.display='none';
@@ -936,7 +936,7 @@ function advanceAfterAction(){
       humanActedThisRound=false;
       console.log('[Game] New round',roundNum);
     }
-    busy=false;startHumanTurn();
+    humanTurnActive=true;busy=false;startHumanTurn();
   } else {
     startAITurn(turnIdx);
   }
