@@ -877,7 +877,7 @@ function dealCards() {
 
 function doAction(type) {
   console.log('[Game] doAction', type, 'turnIdx=', turnIdx, 'busy=', busy);
-  if(state!==GS.PLAYING||busy||turnIdx!==0) return;
+  if(state!==GS.PLAYING||busy||turnIdx!==0){console.log("[Game] doAction BLOCKED: state=",state,"busy=",busy,"turnIdx=",turnIdx);return;}
   busy=true; clearTimer(); disableBtns();
   const me=players[0];
   const hasSeen=seen['me'];
@@ -940,7 +940,7 @@ function advanceTurn() {
   turnIdx=next;
   highlightTurn();
 
-  if(turnIdx===0){
+  console.log("[Game] advanceTurn: turnIdx=", turnIdx, "-> ", next); if(turnIdx===0){
     console.log('[Game] Back to human, enabling buttons');
     enableBtns(); startTimer();
   } else {
@@ -1086,7 +1086,7 @@ function showResult() {
   updateUI();
 }
 
-function enableBtns(){
+function enableBtns(){console.log("[Game] enableBtns: state=", state, "turnIdx=", turnIdx, "p0active=", players[0]&&players[0].active);
   if(state!==GS.PLAYING||turnIdx!==0||!players[0].active) return;
   ['btn-fold','btn-look','btn-call','btn-raise'].forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=false;});
   updateBtnTexts();
